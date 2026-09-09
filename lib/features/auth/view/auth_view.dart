@@ -125,7 +125,7 @@ class _ChatMarkPainter extends CustomPainter {
 
   @override
   void paint(Canvas canvas, Size size) {
-    final background = Paint()..color = const Color(0xFF0F172A);
+    final background = Paint()..color = AppColors.primary;
     canvas.drawRRect(
       RRect.fromRectAndRadius(
         Offset.zero & size,
@@ -162,7 +162,7 @@ class _ChatMarkPainter extends CustomPainter {
     canvas.drawPath(tail, bubblePaint);
 
     final linePaint = Paint()
-      ..color = const Color(0xFF0F172A)
+      ..color = Colors.black
       ..strokeWidth = size.height * 0.055
       ..strokeCap = StrokeCap.round;
 
@@ -230,7 +230,7 @@ class _AuthTextField extends StatelessWidget {
         prefixIcon: Icon(
           icon,
           size: 22,
-          color: AppColors.onSurfaceVariant,
+          color: Colors.black,
         ),
         // Keeps icon vertically centered with the text baseline area.
         prefixIconConstraints: const BoxConstraints(
