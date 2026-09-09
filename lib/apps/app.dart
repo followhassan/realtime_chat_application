@@ -14,8 +14,8 @@ class RealtimeChatApp extends StatelessWidget {
       debugShowCheckedModeBanner: false,
       theme: AppTheme.light,
       darkTheme: AppTheme.dark,
-      themeMode: ThemeMode.system,
-      initialRoute: AppRoutes.home,
+      themeMode: ThemeMode.light,
+      initialRoute: AppRoutes.auth,
       getPages: AppPages.pages,
     );
   }
