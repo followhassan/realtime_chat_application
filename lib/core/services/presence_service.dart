@@ -11,58 +11,77 @@ class PresenceService {
 
   final FirebaseFirestore _db;
   Timer? _heartbeat;
+  String? _roomId;
+  String? _userId;
+  var _wantOnline = false;
 
   CollectionReference<Map<String, dynamic>> _members(String roomId) =>
       _db.collection(FirebasePaths.members(roomId));
 
-  Stream<List<RoomMember>> watchMembers(String roomId) {
-    return _members(roomId).snapshots().map((snap) {
-      final members = snap.docs.map(RoomMember.fromDoc).toList()
-        ..sort((a, b) => a.name.toLowerCase().compareTo(b.name.toLowerCase()));
-      return members.map((m) {
-        final stale = m.lastReadAt == null
-            ? false
-            : false;
-        // Online if flagged and heartbeat fresh (< 60s).
-        final dataOnline = m.isOnline;
-        return m.copyWith(isOnline: dataOnline && !stale);
-      }).toList();
-    });
-  }
-
-  /// Refined online check using lastSeen from raw docs.
+  /// Online if flagged and [lastSeen] is fresh. Re-emits on a timer so
+  /// everyone sees a peer go offline even when no further writes arrive.
   Stream<List<RoomMember>> watchMembersWithHeartbeat(String roomId) {
-    return _members(roomId).snapshots().map((snap) {
-      final now = DateTime.now();
-      return snap.docs.map((doc) {
-        final member = RoomMember.fromDoc(doc);
-        final lastSeen = doc.data()['lastSeen'];
-        final lastSeenAt = lastSeen is Timestamp ? lastSeen.toDate() : null;
-        final fresh = lastSeenAt != null &&
-            now.difference(lastSeenAt) < const Duration(seconds: 60);
-        return member.copyWith(isOnline: member.isOnline && fresh);
-      }).toList()
-        ..sort((a, b) => a.name.toLowerCase().compareTo(b.name.toLowerCase()));
-    });
+    StreamSubscription<QuerySnapshot<Map<String, dynamic>>>? sub;
+    Timer? tick;
+    QuerySnapshot<Map<String, dynamic>>? latest;
+
+    late final StreamController<List<RoomMember>> controller;
+    controller = StreamController<List<RoomMember>>(
+      onListen: () {
+        sub = _members(roomId).snapshots().listen((snap) {
+          latest = snap;
+          controller.add(_mapMembers(snap));
+        });
+        tick = Timer.periodic(const Duration(seconds: 8), (_) {
+          if (latest != null) controller.add(_mapMembers(latest!));
+        });
+      },
+      onCancel: () {
+        sub?.cancel();
+        tick?.cancel();
+      },
+    );
+    return controller.stream;
   }
 
-  Future<void> joinRoom({
+  List<RoomMember> _mapMembers(QuerySnapshot<Map<String, dynamic>> snap) {
+    final now = DateTime.now();
+    return snap.docs.map((doc) {
+      final member = RoomMember.fromDoc(doc);
+      final lastSeen = doc.data()['lastSeen'];
+      final lastSeenAt = lastSeen is Timestamp ? lastSeen.toDate() : null;
+      final fresh = lastSeenAt != null &&
+          now.difference(lastSeenAt) < const Duration(seconds: 60);
+      return member.copyWith(isOnline: member.isOnline && fresh);
+    }).toList()
+      ..sort((a, b) => a.name.toLowerCase().compareTo(b.name.toLowerCase()));
+  }
+
+  /// Returns `true` when this user has never been in the room before.
+  Future<bool> joinRoom({
     required String roomId,
     required AppUser user,
   }) async {
-    await _members(roomId).doc(user.id).set({
+    _roomId = roomId;
+    _userId = user.id;
+    final ref = _members(roomId).doc(user.id);
+    final existing = await ref.get();
+    final isFirstJoin = !existing.exists;
+
+    final data = <String, dynamic>{
       'email': user.email,
       'displayName': user.displayName,
       'avatarColor': user.avatarColor.toARGB32(),
       'isOnline': true,
       'lastSeen': FieldValue.serverTimestamp(),
-      'joinedAt': FieldValue.serverTimestamp(),
-    }, SetOptions(merge: true));
+    };
+    if (isFirstJoin) {
+      data['joinedAt'] = FieldValue.serverTimestamp();
+    }
 
-    _heartbeat?.cancel();
-    _heartbeat = Timer.periodic(const Duration(seconds: 25), (_) {
-      setOnline(roomId: roomId, userId: user.id, online: true);
-    });
+    await ref.set(data, SetOptions(merge: true));
+    await setOnline(roomId: roomId, userId: user.id, online: true);
+    return isFirstJoin;
   }
 
   Future<void> setOnline({
@@ -70,6 +89,26 @@ class PresenceService {
     required String userId,
     required bool online,
   }) async {
+    _roomId = roomId;
+    _userId = userId;
+    _wantOnline = online;
+    await _writePresence(online: online);
+    if (online) {
+      _heartbeat ??= Timer.periodic(const Duration(seconds: 25), (_) {
+        if (_wantOnline && _roomId != null && _userId != null) {
+          _writePresence(online: true);
+        }
+      });
+    } else {
+      _heartbeat?.cancel();
+      _heartbeat = null;
+    }
+  }
+
+  Future<void> _writePresence({required bool online}) async {
+    final roomId = _roomId;
+    final userId = _userId;
+    if (roomId == null || userId == null) return;
     await _members(roomId).doc(userId).set({
       'isOnline': online,
       'lastSeen': FieldValue.serverTimestamp(),
@@ -97,5 +136,7 @@ class PresenceService {
 
   void dispose() {
     _heartbeat?.cancel();
+    _heartbeat = null;
+    _wantOnline = false;
   }
 }

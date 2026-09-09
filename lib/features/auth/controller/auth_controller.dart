@@ -46,16 +46,18 @@ class AuthController extends GetxController {
         displayName: displayNameController.text,
       );
 
-      await _presenceService.joinRoom(
+      final isFirstJoin = await _presenceService.joinRoom(
         roomId: FirebasePaths.defaultRoomId,
         user: user,
       );
 
-      await _messageService.sendJoinAnnouncement(
-        roomId: FirebasePaths.defaultRoomId,
-        senderId: user.id,
-        displayName: user.displayName,
-      );
+      if (isFirstJoin) {
+        await _messageService.sendJoinAnnouncement(
+          roomId: FirebasePaths.defaultRoomId,
+          senderId: user.id,
+          displayName: user.displayName,
+        );
+      }
 
       Get.offAllNamed(
         AppRoutes.chat,

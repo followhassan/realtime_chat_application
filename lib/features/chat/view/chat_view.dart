@@ -24,11 +24,24 @@ class ChatView extends GetView<ChatController> {
             crossAxisAlignment: CrossAxisAlignment.start,
             children: [
               Text(controller.roomTitle),
-              Text(
-                '${controller.onlineCount} online',
-                style: Theme.of(context).textTheme.labelMedium?.copyWith(
-                      color: AppColors.onSurfaceVariant,
+              Row(
+                children: [
+                  Container(
+                    width: 8,
+                    height: 8,
+                    decoration: const BoxDecoration(
+                      color: AppColors.presence,
+                      shape: BoxShape.circle,
                     ),
+                  ),
+                  const SizedBox(width: 6),
+                  Text(
+                    '${controller.onlineCount} online',
+                    style: Theme.of(context).textTheme.labelMedium?.copyWith(
+                          color: AppColors.onSurfaceVariant,
+                        ),
+                  ),
+                ],
               ),
             ],
           ),

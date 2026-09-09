@@ -75,6 +75,7 @@ class ChatController extends GetxController with WidgetsBindingObserver {
     session = args;
 
     scrollController.addListener(_onScroll);
+    _presence.setOnline(roomId: roomId, userId: userId, online: true);
     _bindStreams();
     _setupFcm();
     _setupConnectivity();
@@ -100,10 +101,60 @@ class ChatController extends GetxController with WidgetsBindingObserver {
       final offline = results.every((r) => r == ConnectivityResult.none);
       isReconnecting.value = offline;
       if (!offline) {
-        // Firestore snapshots auto-resync; force presence heartbeat.
         _presence.setOnline(roomId: roomId, userId: userId, online: true);
+        if (_bootstrapped) {
+          unawaited(_resyncAfterReconnect());
+        }
       }
     });
+  }
+
+  /// Reloads the newest page and pages backward until history is contiguous.
+  Future<void> _resyncAfterReconnect() async {
+    try {
+      final page = await _messages.loadLatestPage(
+        roomId: roomId,
+        currentUserId: userId,
+      );
+      _onRemoteMessages(page);
+      await _backfillGaps(page);
+      isReconnecting.value = false;
+    } catch (_) {
+      isReconnecting.value = true;
+    }
+  }
+
+  Future<void> _backfillGaps(List<ChatMessage> latestPage) async {
+    if (latestPage.isEmpty || messages.isEmpty) return;
+    var before = latestPage.first.createdAt;
+    final known = messages.map((m) => m.clientId).toSet();
+    final oldestWanted = messages.first.createdAt;
+    for (var i = 0; i < 12; i++) {
+      final older = await _messages.loadOlderPage(
+        roomId: roomId,
+        currentUserId: userId,
+        before: before,
+      );
+      if (older.isEmpty) {
+        hasMore.value = false;
+        break;
+      }
+      final missing = older.where((m) => !known.contains(m.clientId)).toList();
+      if (missing.isNotEmpty) {
+        for (final m in missing) {
+          known.add(m.clientId);
+        }
+        final merged = <ChatMessage>[...messages, ...missing]
+          ..sort((a, b) {
+            final c = a.createdAt.compareTo(b.createdAt);
+            if (c != 0) return c;
+            return a.clientId.compareTo(b.clientId);
+          });
+        messages.assignAll(merged);
+      }
+      before = older.first.createdAt;
+      if (!before.isAfter(oldestWanted)) break;
+    }
   }
 
   void _bindStreams() {

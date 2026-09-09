@@ -112,21 +112,76 @@ class _BrandMark extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    return Container(
-      width: 72,
-      height: 72,
-      decoration: BoxDecoration(
-        color: AppColors.primary,
-        borderRadius: BorderRadius.circular(18),
-      ),
-      alignment: Alignment.center,
-      child: const Icon(
-        Icons.chat_bubble_outline_rounded,
-        color: AppColors.onPrimary,
-        size: 34,
-      ),
+    return const SizedBox(
+      width: 96,
+      height: 96,
+      child: CustomPaint(painter: _ChatMarkPainter()),
     );
   }
+}
+
+class _ChatMarkPainter extends CustomPainter {
+  const _ChatMarkPainter();
+
+  @override
+  void paint(Canvas canvas, Size size) {
+    final background = Paint()..color = const Color(0xFF0F172A);
+    canvas.drawRRect(
+      RRect.fromRectAndRadius(
+        Offset.zero & size,
+        Radius.circular(size.width * 0.24),
+      ),
+      background,
+    );
+
+    final bubblePaint = Paint()
+      ..color = Colors.white
+      ..style = PaintingStyle.fill;
+
+    final bubble = RRect.fromRectAndRadius(
+      Rect.fromLTWH(
+        size.width * 0.18,
+        size.height * 0.20,
+        size.width * 0.64,
+        size.height * 0.44,
+      ),
+      Radius.circular(size.width * 0.16),
+    );
+    canvas.drawRRect(bubble, bubblePaint);
+
+    final tail = Path()
+      ..moveTo(size.width * 0.28, size.height * 0.60)
+      ..lineTo(size.width * 0.22, size.height * 0.78)
+      ..quadraticBezierTo(
+        size.width * 0.30,
+        size.height * 0.72,
+        size.width * 0.40,
+        size.height * 0.62,
+      )
+      ..close();
+    canvas.drawPath(tail, bubblePaint);
+
+    final linePaint = Paint()
+      ..color = const Color(0xFF0F172A)
+      ..strokeWidth = size.height * 0.055
+      ..strokeCap = StrokeCap.round;
+
+    final left = size.width * 0.28;
+    void drawLine(double y, double widthFactor) {
+      canvas.drawLine(
+        Offset(left, y),
+        Offset(left + size.width * widthFactor, y),
+        linePaint,
+      );
+    }
+
+    drawLine(size.height * 0.34, 0.42);
+    drawLine(size.height * 0.42, 0.32);
+    drawLine(size.height * 0.50, 0.22);
+  }
+
+  @override
+  bool shouldRepaint(covariant CustomPainter oldDelegate) => false;
 }
 
 /// Shared field so icon + text use the same vertical alignment.

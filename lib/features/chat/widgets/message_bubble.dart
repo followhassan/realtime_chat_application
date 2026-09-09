@@ -21,6 +21,12 @@ class MessageBubble extends StatelessWidget {
   }
 }
 
+String _formatTime(DateTime date) {
+  final hour = date.hour.toString().padLeft(2, '0');
+  final minute = date.minute.toString().padLeft(2, '0');
+  return '$hour:$minute';
+}
+
 class _OwnBubble extends StatelessWidget {
   const _OwnBubble({required this.message});
 
@@ -30,36 +36,53 @@ class _OwnBubble extends StatelessWidget {
   Widget build(BuildContext context) {
     return Align(
       alignment: Alignment.centerRight,
-      child: Container(
-        margin: const EdgeInsets.only(top: 2, bottom: 2, left: 64),
-        padding: const EdgeInsets.fromLTRB(12, 8, 10, 6),
-        decoration: const BoxDecoration(
-          color: AppColors.primary,
-          borderRadius: BorderRadius.only(
-            topLeft: Radius.circular(16),
-            topRight: Radius.circular(16),
-            bottomLeft: Radius.circular(16),
-            bottomRight: Radius.circular(4),
+      child: ConstrainedBox(
+        constraints: const BoxConstraints(maxWidth: 300),
+        child: Container(
+          margin: const EdgeInsets.only(top: 3, bottom: 3, left: 56),
+          padding: const EdgeInsets.fromLTRB(14, 9, 12, 7),
+          decoration: const BoxDecoration(
+            color: AppColors.primary,
+            borderRadius: BorderRadius.only(
+              topLeft: Radius.circular(18),
+              topRight: Radius.circular(18),
+              bottomLeft: Radius.circular(18),
+              bottomRight: Radius.circular(6),
+            ),
           ),
-        ),
-        child: Column(
-          crossAxisAlignment: CrossAxisAlignment.end,
-          children: [
-            Text(
-              message.body,
-              style: Theme.of(context).textTheme.bodyMedium?.copyWith(
-                    color: AppColors.onPrimary,
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.end,
+            children: [
+              Text(
+                message.body,
+                style: Theme.of(context).textTheme.bodyMedium?.copyWith(
+                      color: AppColors.onPrimary,
+                      height: 1.35,
+                    ),
+              ),
+              const SizedBox(height: 4),
+              Row(
+                mainAxisSize: MainAxisSize.min,
+                children: [
+                  Text(
+                    _formatTime(message.createdAt),
+                    style: Theme.of(context).textTheme.labelSmall?.copyWith(
+                          color: AppColors.onPrimary.withValues(alpha: 0.78),
+                          fontSize: 11,
+                        ),
                   ),
-            ),
-            const SizedBox(height: 2),
-            Icon(
-              message.deliveryStatus == DeliveryStatus.delivered
-                  ? Icons.done_all
-                  : Icons.done,
-              size: 14,
-              color: AppColors.onPrimary.withValues(alpha: 0.85),
-            ),
-          ],
+                  const SizedBox(width: 4),
+                  Icon(
+                    message.deliveryStatus == DeliveryStatus.delivered
+                        ? Icons.done_all
+                        : Icons.done,
+                    size: 14,
+                    color: AppColors.onPrimary.withValues(alpha: 0.85),
+                  ),
+                ],
+              ),
+            ],
+          ),
         ),
       ),
     );
@@ -79,42 +102,54 @@ class _OtherBubble extends StatelessWidget {
   Widget build(BuildContext context) {
     return Align(
       alignment: Alignment.centerLeft,
-      child: Container(
-        margin: EdgeInsets.only(
-          top: showSender ? 8 : 2,
-          bottom: 2,
-          right: 64,
-        ),
-        padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
-        decoration: const BoxDecoration(
-          color: AppColors.otherBubble,
-          borderRadius: BorderRadius.only(
-            topLeft: Radius.circular(4),
-            topRight: Radius.circular(16),
-            bottomLeft: Radius.circular(16),
-            bottomRight: Radius.circular(16),
+      child: ConstrainedBox(
+        constraints: const BoxConstraints(maxWidth: 300),
+        child: Container(
+          margin: EdgeInsets.only(
+            top: showSender ? 10 : 3,
+            bottom: 3,
+            right: 56,
           ),
-        ),
-        child: Column(
-          crossAxisAlignment: CrossAxisAlignment.start,
-          children: [
-            if (showSender) ...[
+          padding: const EdgeInsets.fromLTRB(14, 9, 14, 7),
+          decoration: const BoxDecoration(
+            color: AppColors.otherBubble,
+            borderRadius: BorderRadius.only(
+              topLeft: Radius.circular(6),
+              topRight: Radius.circular(18),
+              bottomLeft: Radius.circular(18),
+              bottomRight: Radius.circular(18),
+            ),
+          ),
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              if (showSender) ...[
+                Text(
+                  message.senderName,
+                  style: Theme.of(context).textTheme.labelMedium?.copyWith(
+                        color: AppColors.primary,
+                        fontWeight: FontWeight.w700,
+                      ),
+                ),
+                const SizedBox(height: 3),
+              ],
               Text(
-                message.senderName,
-                style: Theme.of(context).textTheme.labelMedium?.copyWith(
-                      color: AppColors.primary,
-                      fontWeight: FontWeight.w600,
+                message.body,
+                style: Theme.of(context).textTheme.bodyMedium?.copyWith(
+                      color: AppColors.onSurface,
+                      height: 1.35,
                     ),
               ),
-              const SizedBox(height: 2),
+              const SizedBox(height: 4),
+              Text(
+                _formatTime(message.createdAt),
+                style: Theme.of(context).textTheme.labelSmall?.copyWith(
+                      color: AppColors.onSurfaceVariant,
+                      fontSize: 11,
+                    ),
+              ),
             ],
-            Text(
-              message.body,
-              style: Theme.of(context).textTheme.bodyMedium?.copyWith(
-                    color: AppColors.onSurface,
-                  ),
-            ),
-          ],
+          ),
         ),
       ),
     );

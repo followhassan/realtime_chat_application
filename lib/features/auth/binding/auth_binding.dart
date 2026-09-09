@@ -7,9 +7,9 @@ import 'package:realtime_chat_application/features/auth/controller/auth_controll
 class AuthBinding extends Bindings {
   @override
   void dependencies() {
-    final authService = Get.put(AuthService());
-    final messageService = Get.put(MessageService());
-    final presenceService = Get.put(PresenceService());
+    final authService = _permanent(AuthService.new);
+    final messageService = _permanent(MessageService.new);
+    final presenceService = _permanent(PresenceService.new);
     Get.put(
       AuthController(
         authService: authService,
@@ -17,5 +17,10 @@ class AuthBinding extends Bindings {
         presenceService: presenceService,
       ),
     );
+  }
+
+  T _permanent<T>(T Function() create) {
+    if (Get.isRegistered<T>()) return Get.find<T>();
+    return Get.put(create(), permanent: true);
   }
 }

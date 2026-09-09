@@ -34,8 +34,14 @@ exports.onMessageCreated = onDocumentCreated(
     membersSnap.forEach((doc) => {
       if (doc.id === senderId) return;
       const data = doc.data() || {};
-      // Only notify members who are currently offline / backgrounded.
-      if (data.isOnline === true) return;
+      // Skip only if the member looks freshly online (app in foreground).
+      // Killed / crashed clients often still have isOnline=true.
+      const lastSeen = data.lastSeen && typeof data.lastSeen.toMillis === "function"
+        ? data.lastSeen.toMillis()
+        : 0;
+      const freshOnline =
+        data.isOnline === true && lastSeen > 0 && Date.now() - lastSeen < 45000;
+      if (freshOnline) return;
       const list = Array.isArray(data.fcmTokens) ? data.fcmTokens : [];
       list.forEach((t) => {
         if (typeof t === "string" && t.length > 0) tokens.push(t);

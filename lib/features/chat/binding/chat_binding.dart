@@ -8,16 +8,10 @@ import 'package:realtime_chat_application/features/chat/controller/chat_controll
 class ChatBinding extends Bindings {
   @override
   void dependencies() {
-    final messageService = Get.isRegistered<MessageService>()
-        ? Get.find<MessageService>()
-        : Get.put(MessageService());
-    final presenceService = Get.isRegistered<PresenceService>()
-        ? Get.find<PresenceService>()
-        : Get.put(PresenceService());
-    final typingService = Get.put(TypingService());
-    final fcmService = Get.isRegistered<FcmService>()
-        ? Get.find<FcmService>()
-        : Get.put(FcmService());
+    final messageService = _permanent(MessageService.new);
+    final presenceService = _permanent(PresenceService.new);
+    final typingService = _permanent(TypingService.new);
+    final fcmService = _permanent(FcmService.new);
 
     Get.put(
       ChatController(
@@ -27,5 +21,10 @@ class ChatBinding extends Bindings {
         fcmService: fcmService,
       ),
     );
+  }
+
+  T _permanent<T>(T Function() create) {
+    if (Get.isRegistered<T>()) return Get.find<T>();
+    return Get.put(create(), permanent: true);
   }
 }
