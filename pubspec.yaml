@@ -37,6 +37,12 @@ dependencies:
   get: ^4.7.3
   flutter_local_notifications: ^22.3.0
   shared_preferences: ^2.5.5
+  firebase_core: ^4.14.0
+  firebase_auth: ^6.6.1
+  cloud_firestore: ^6.9.0
+  firebase_messaging: ^16.6.0
+  connectivity_plus: ^7.3.1
+  uuid: ^4.6.0
 
 dev_dependencies:
   flutter_test:
