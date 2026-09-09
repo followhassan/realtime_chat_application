@@ -23,43 +23,66 @@ class AuthService {
   }) async {
     final normalized = EmailUtils.normalize(email);
     if (!EmailUtils.isValid(normalized)) {
-      throw ArgumentError('Enter a valid email');
+      throw StateError('Enter a valid email address.');
     }
 
-    if (_auth.currentUser == null) {
-      await _auth.signInAnonymously();
+    try {
+      if (_auth.currentUser == null) {
+        await _auth.signInAnonymously();
+      }
+    } on FirebaseAuthException catch (e) {
+      if (e.code == 'operation-not-allowed') {
+        throw StateError(
+          'Anonymous Auth is disabled. Enable it in Firebase Console → Authentication → Sign-in method → Anonymous.',
+        );
+      }
+      throw StateError('Sign-in failed: ${e.message ?? e.code}');
     }
 
     final id = EmailUtils.docId(normalized);
     final ref = _users.doc(id);
-    final existing = await ref.get();
 
-    final name = (displayName == null || displayName.trim().isEmpty)
-        ? (existing.data()?['displayName'] as String? ??
-            EmailUtils.defaultDisplayName(normalized))
-        : displayName.trim();
+    try {
+      final existing = await ref.get();
 
-    if (existing.exists) {
-      await ref.set({
-        'displayName': name,
-        'email': normalized,
-        'updatedAt': FieldValue.serverTimestamp(),
-        'lastAuthUid': _auth.currentUser?.uid,
-      }, SetOptions(merge: true));
+      final name = (displayName == null || displayName.trim().isEmpty)
+          ? (existing.data()?['displayName'] as String? ??
+              EmailUtils.defaultDisplayName(normalized))
+          : displayName.trim();
+
+      if (existing.exists) {
+        await ref.set({
+          'displayName': name,
+          'email': normalized,
+          'updatedAt': FieldValue.serverTimestamp(),
+          'lastAuthUid': _auth.currentUser?.uid,
+        }, SetOptions(merge: true));
+      } else {
+        final color = avatarColorFromEmail(normalized);
+        await ref.set({
+          'email': normalized,
+          'displayName': name,
+          'avatarColor': color.toARGB32(),
+          'createdAt': FieldValue.serverTimestamp(),
+          'updatedAt': FieldValue.serverTimestamp(),
+          'lastAuthUid': _auth.currentUser?.uid,
+        });
+      }
+
       return AppUser.fromDoc(await ref.get());
+    } on FirebaseException catch (e) {
+      if (e.code == 'not-found' || e.code == 'unavailable') {
+        throw StateError(
+          'Cloud Firestore is not set up. Create the default database in Firebase Console → Firestore.',
+        );
+      }
+      if (e.code == 'permission-denied') {
+        throw StateError(
+          'Firestore permission denied. Deploy rules or use test mode temporarily.',
+        );
+      }
+      throw StateError('Firestore error: ${e.message ?? e.code}');
     }
-
-    final color = avatarColorFromEmail(normalized);
-    await ref.set({
-      'email': normalized,
-      'displayName': name,
-      'avatarColor': color.toARGB32(),
-      'createdAt': FieldValue.serverTimestamp(),
-      'updatedAt': FieldValue.serverTimestamp(),
-      'lastAuthUid': _auth.currentUser?.uid,
-    });
-
-    return AppUser.fromDoc(await ref.get());
   }
 
   Future<void> signOut() => _auth.signOut();

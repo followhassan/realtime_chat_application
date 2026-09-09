@@ -62,8 +62,14 @@ class AuthController extends GetxController {
         arguments: SessionArgs(user: user),
       );
     } catch (e) {
-      errorText.value = e.toString();
-      Get.snackbar('Join failed', '$e');
+      final message = e is StateError ? e.message : '$e';
+      errorText.value = message;
+      Get.snackbar(
+        'Join failed',
+        message,
+        snackPosition: SnackPosition.BOTTOM,
+        duration: const Duration(seconds: 5),
+      );
     } finally {
       isJoining.value = false;
     }
