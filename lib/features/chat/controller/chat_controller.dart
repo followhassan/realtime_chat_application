@@ -1,46 +1,66 @@
 import 'dart:async';
 
+import 'package:connectivity_plus/connectivity_plus.dart';
 import 'package:flutter/material.dart';
 import 'package:get/get.dart';
 import 'package:realtime_chat_application/apps/routes/app_routes.dart';
 import 'package:realtime_chat_application/core/models/chat_message.dart';
+import 'package:realtime_chat_application/core/models/room_member.dart';
 import 'package:realtime_chat_application/core/models/session_args.dart';
-import 'package:realtime_chat_application/features/notification/controller/notification_controller.dart';
-import 'package:realtime_chat_application/features/presence/controller/presence_controller.dart';
-import 'package:realtime_chat_application/features/room/controller/room_controller.dart';
+import 'package:realtime_chat_application/core/services/fcm_service.dart';
+import 'package:realtime_chat_application/core/services/message_service.dart';
+import 'package:realtime_chat_application/core/services/presence_service.dart';
+import 'package:realtime_chat_application/core/services/typing_service.dart';
 
 class ChatController extends GetxController with WidgetsBindingObserver {
   ChatController({
-    required this.roomController,
-    required this.presenceController,
-    required this.notificationController,
-  });
+    MessageService? messageService,
+    PresenceService? presenceService,
+    TypingService? typingService,
+    FcmService? fcmService,
+  })  : _messages = messageService ?? MessageService(),
+        _presence = presenceService ?? PresenceService(),
+        _typing = typingService ?? TypingService(),
+        _fcm = fcmService ?? FcmService();
 
-  final RoomController roomController;
-  final PresenceController presenceController;
-  final NotificationController notificationController;
+  final MessageService _messages;
+  final PresenceService _presence;
+  final TypingService _typing;
+  final FcmService _fcm;
 
   final messages = <ChatMessage>[].obs;
+  final members = <RoomMember>[].obs;
   final typingUsers = <String>[].obs;
+
   final textController = TextEditingController();
   final scrollController = ScrollController();
 
   final unreadCount = 0.obs;
   final showJumpToLatest = false.obs;
   final isAtBottom = true.obs;
+  final isLoadingMore = false.obs;
+  final hasMore = true.obs;
+  final isReconnecting = false.obs;
 
-  /// Index in [messages] where the unread divider should appear, or -1.
+  /// Index in [messages] for unread divider, or -1.
   final unreadDividerIndex = (-1).obs;
 
   late SessionArgs session;
   var _isInBackground = false;
-  Timer? _deliveryTimer;
-  Timer? _demoIncomingTimer;
-  Timer? _typingClearTimer;
-  var _idCounter = 0;
+  var _bootstrapped = false;
 
-  String get roomTitle => roomController.roomName.value;
-  int get onlineCount => presenceController.onlineCount;
+  final _pendingClientIds = <String>{};
+  Timer? _typingTimer;
+  StreamSubscription? _messagesSub;
+  StreamSubscription? _membersSub;
+  StreamSubscription? _typingSub;
+  StreamSubscription? _connectivitySub;
+  StreamSubscription? _tokenSub;
+
+  String get roomTitle => session.roomName;
+  String get roomId => session.roomId;
+  String get userId => session.user.id;
+  int get onlineCount => members.where((m) => m.isOnline).length;
 
   @override
   void onInit() {
@@ -49,89 +69,177 @@ class ChatController extends GetxController with WidgetsBindingObserver {
 
     final args = Get.arguments;
     if (args is! SessionArgs) {
-      Get.back();
+      Get.offAllNamed(AppRoutes.auth);
       return;
     }
     session = args;
 
-    roomController.bindSession(session);
-    presenceController.bootstrap(session);
-    notificationController.init();
-
-    _seedInitialMessages();
     scrollController.addListener(_onScroll);
-
-    WidgetsBinding.instance.addPostFrameCallback((_) => _scrollToBottom());
-
-    // Demo: incoming message for unread / typing / background notification.
-    _demoIncomingTimer = Timer(const Duration(seconds: 8), _simulateIncoming);
+    _bindStreams();
+    _setupFcm();
+    _setupConnectivity();
   }
 
-  void _seedInitialMessages() {
-    final now = DateTime.now();
-    final yesterday = now.subtract(const Duration(days: 1));
-    messages.assignAll([
-      ChatMessage(
-        id: _nextId(),
-        senderId: 'sam@example.com',
-        senderName: 'Sam Chen',
-        body: 'Room created — say hi when you join.',
-        createdAt: yesterday.subtract(const Duration(hours: 2)),
-      ),
-      ChatMessage(
-        id: _nextId(),
-        senderId: 'alex@example.com',
-        senderName: 'Alex Rivera',
-        body: 'Looking forward to chatting here.',
-        createdAt: yesterday.subtract(const Duration(hours: 1)),
-      ),
-      ChatMessage(
-        id: _nextId(),
-        senderId: 'system',
-        senderName: 'system',
-        body: '${session.displayName} joined the room',
-        createdAt: now.subtract(const Duration(minutes: 12)),
-        kind: MessageKind.system,
-      ),
-      ChatMessage(
-        id: _nextId(),
-        senderId: 'alex@example.com',
-        senderName: 'Alex Rivera',
-        body: 'Hey everyone — welcome in.',
-        createdAt: now.subtract(const Duration(minutes: 10)),
-      ),
-      ChatMessage(
-        id: _nextId(),
-        senderId: 'alex@example.com',
-        senderName: 'Alex Rivera',
-        body: 'Feel free to say hello.',
-        createdAt: now.subtract(const Duration(minutes: 9, seconds: 40)),
-      ),
-      ChatMessage(
-        id: _nextId(),
-        senderId: 'sam@example.com',
-        senderName: 'Sam Chen',
-        body: 'Hi! Glad to be here.',
-        createdAt: now.subtract(const Duration(minutes: 8)),
-      ),
-      ChatMessage(
-        id: _nextId(),
-        senderId: 'jordan@example.com',
-        senderName: 'Jordan Lee',
-        body: 'I may drop offline for a bit.',
-        createdAt: now.subtract(const Duration(minutes: 6)),
-      ),
-      ChatMessage(
-        id: _nextId(),
-        senderId: 'alex@example.com',
-        senderName: 'Alex Rivera',
-        body: 'No worries — catch you later.',
-        createdAt: now.subtract(const Duration(minutes: 5)),
-      ),
-    ]);
+  Future<void> _setupFcm() async {
+    await _fcm.init();
+    final token = await _fcm.getToken();
+    if (token != null) {
+      await _presence.saveFcmToken(
+        roomId: roomId,
+        userId: userId,
+        token: token,
+      );
+    }
+    _tokenSub = _fcm.onTokenRefresh.listen((token) {
+      _presence.saveFcmToken(roomId: roomId, userId: userId, token: token);
+    });
   }
 
-  String _nextId() => 'msg_${_idCounter++}';
+  void _setupConnectivity() {
+    _connectivitySub = Connectivity().onConnectivityChanged.listen((results) {
+      final offline = results.every((r) => r == ConnectivityResult.none);
+      isReconnecting.value = offline;
+      if (!offline) {
+        // Firestore snapshots auto-resync; force presence heartbeat.
+        _presence.setOnline(roomId: roomId, userId: userId, online: true);
+      }
+    });
+  }
+
+  void _bindStreams() {
+    _messagesSub?.cancel();
+    _messagesSub = _messages
+        .watchLatestPage(roomId: roomId, currentUserId: userId)
+        .listen(_onRemoteMessages, onError: (e) {
+      isReconnecting.value = true;
+    });
+
+    _membersSub?.cancel();
+    _membersSub = _presence.watchMembersWithHeartbeat(roomId).listen((list) {
+      members.assignAll(_applyUnreadFlags(list));
+    });
+
+    _typingSub?.cancel();
+    _typingSub = _typing
+        .watchTypingNames(roomId: roomId, currentUserId: userId)
+        .listen(typingUsers.assignAll);
+  }
+
+  List<RoomMember> _applyUnreadFlags(List<RoomMember> list) {
+    if (unreadCount.value <= 0) {
+      return list.map((m) => m.copyWith(hasUnread: false)).toList();
+    }
+    final unreadSenderIds = messages
+        .skip(unreadDividerIndex.value < 0 ? messages.length : unreadDividerIndex.value)
+        .where((m) => !m.isMine && !m.isSystem)
+        .map((m) => m.senderId)
+        .toSet();
+    return list
+        .map((m) => m.copyWith(hasUnread: unreadSenderIds.contains(m.id)))
+        .toList();
+  }
+
+  void _onRemoteMessages(List<ChatMessage> remotePage) {
+    isReconnecting.value = false;
+
+    for (final remote in remotePage) {
+      _pendingClientIds.remove(remote.clientId);
+    }
+
+    final olderKeep = <ChatMessage>[];
+    for (final local in messages) {
+      final inRemote = remotePage.any(
+        (r) => r.id == local.id || r.clientId == local.clientId,
+      );
+      if (inRemote) continue;
+      if (local.id.startsWith('local_') &&
+          _pendingClientIds.contains(local.clientId)) {
+        olderKeep.add(local);
+        continue;
+      }
+      if (remotePage.isNotEmpty &&
+          local.createdAt.isBefore(remotePage.first.createdAt)) {
+        olderKeep.add(local);
+      }
+    }
+
+    final merged = <ChatMessage>[...olderKeep, ...remotePage]
+      ..sort((a, b) {
+        final c = a.createdAt.compareTo(b.createdAt);
+        if (c != 0) return c;
+        return a.clientId.compareTo(b.clientId);
+      });
+
+    final previousLastId = messages.isEmpty ? null : messages.last.id;
+    final wasAtBottom = isAtBottom.value;
+    messages.assignAll(merged);
+
+    if (!_bootstrapped) {
+      _bootstrapped = true;
+      WidgetsBinding.instance
+          .addPostFrameCallback((_) => _scrollToBottom(force: true));
+      _markRead();
+      return;
+    }
+
+    final newest = messages.isEmpty ? null : messages.last;
+    final isNewIncoming = newest != null &&
+        newest.id != previousLastId &&
+        !newest.isMine &&
+        !newest.isSystem;
+
+    if (isNewIncoming) {
+      if (!wasAtBottom || _isInBackground) {
+        if (unreadDividerIndex.value == -1) {
+          final idx = messages.indexWhere((m) => m.id == newest.id);
+          unreadDividerIndex.value = idx < 0 ? messages.length - 1 : idx;
+        }
+        unreadCount.value += 1;
+        showJumpToLatest.value = !wasAtBottom;
+        members.assignAll(_applyUnreadFlags(members));
+
+        if (_isInBackground) {
+          _fcm.showLocalNotification(
+            senderName: newest.senderName,
+            roomName: roomTitle,
+            body: newest.body,
+          );
+        }
+      } else {
+        _scrollToBottom();
+        _markRead();
+      }
+    } else if (wasAtBottom) {
+      _scrollToBottom();
+      _markRead();
+    }
+  }
+
+  Future<void> loadOlderMessages() async {
+    if (isLoadingMore.value || !hasMore.value || messages.isEmpty) return;
+    isLoadingMore.value = true;
+    try {
+      final oldest = messages.first;
+      final older = await _messages.loadOlderPage(
+        roomId: roomId,
+        currentUserId: userId,
+        before: oldest.createdAt,
+      );
+      if (older.isEmpty) {
+        hasMore.value = false;
+      } else {
+        final existingIds = messages.map((m) => m.clientId).toSet();
+        final toInsert =
+            older.where((m) => !existingIds.contains(m.clientId)).toList();
+        messages.insertAll(0, toInsert);
+        if (unreadDividerIndex.value >= 0) {
+          unreadDividerIndex.value += toInsert.length;
+        }
+      }
+    } finally {
+      isLoadingMore.value = false;
+    }
+  }
 
   void _onScroll() {
     if (!scrollController.hasClients) return;
@@ -140,147 +248,149 @@ class ChatController extends GetxController with WidgetsBindingObserver {
     isAtBottom.value = atBottom;
     showJumpToLatest.value = !atBottom && unreadCount.value > 0;
 
+    if (position.pixels <= 48) {
+      loadOlderMessages();
+    }
+
     if (atBottom) {
-      _clearUnreadIfNewestVisible();
+      _clearUnread();
+      _markRead();
     }
   }
 
-  void _clearUnreadIfNewestVisible() {
-    if (!isAtBottom.value) return;
+  void _clearUnread() {
     if (unreadCount.value == 0 && unreadDividerIndex.value == -1) return;
-
     unreadCount.value = 0;
     unreadDividerIndex.value = -1;
     showJumpToLatest.value = false;
-    presenceController.clearAllUnread();
+    members.assignAll(_applyUnreadFlags(members));
+  }
+
+  Future<void> _markRead() async {
+    await _presence.updateLastRead(roomId: roomId, userId: userId);
   }
 
   Future<void> jumpToLatest() async {
-    if (!scrollController.hasClients) return;
-    await scrollController.animateTo(
-      scrollController.position.maxScrollExtent,
-      duration: const Duration(milliseconds: 280),
-      curve: Curves.easeOut,
-    );
-    _clearUnreadIfNewestVisible();
+    await _scrollToBottom(force: true);
+    _clearUnread();
+    await _markRead();
   }
 
   void onComposerChanged(String value) {
-    // Local typing signal placeholder for realtime wiring.
+    _typingTimer?.cancel();
+    _typing.setTyping(
+      roomId: roomId,
+      userId: userId,
+      displayName: session.user.displayName,
+      isTyping: value.trim().isNotEmpty,
+    );
+    if (value.trim().isEmpty) return;
+    _typingTimer = Timer(const Duration(seconds: 2), () {
+      _typing.setTyping(
+        roomId: roomId,
+        userId: userId,
+        displayName: session.user.displayName,
+        isTyping: false,
+      );
+    });
   }
 
-  void sendMessage() {
+  Future<void> sendMessage() async {
     final text = textController.text.trim();
     if (text.isEmpty) return;
 
-    final message = ChatMessage(
-      id: _nextId(),
-      senderId: session.email,
-      senderName: session.displayName,
+    final clientId = _messages.newClientId();
+    final optimistic = ChatMessage(
+      id: 'local_$clientId',
+      senderId: userId,
+      senderName: session.user.displayName,
       body: text,
       createdAt: DateTime.now(),
+      clientId: clientId,
       isMine: true,
       deliveryStatus: DeliveryStatus.sending,
     );
 
-    messages.add(message);
+    _pendingClientIds.add(clientId);
+    messages.add(optimistic);
     textController.clear();
-    _scrollToBottom();
+    onComposerChanged('');
+    await _scrollToBottom(force: true);
 
-    _deliveryTimer?.cancel();
-    _deliveryTimer = Timer(const Duration(milliseconds: 600), () {
-      final index = messages.indexWhere((m) => m.id == message.id);
-      if (index == -1) return;
-      messages[index] =
-          messages[index].copyWith(deliveryStatus: DeliveryStatus.delivered);
-    });
-  }
-
-  void _simulateIncoming() {
-    typingUsers.assignAll(['Alex Rivera']);
-    _typingClearTimer?.cancel();
-    _typingClearTimer = Timer(const Duration(seconds: 2), () {
-      typingUsers.clear();
-      _appendIncoming(
-        senderId: 'alex@example.com',
-        senderName: 'Alex Rivera',
-        body: 'Just checking in — are you still there?',
+    try {
+      await _messages.sendText(
+        roomId: roomId,
+        senderId: userId,
+        senderName: session.user.displayName,
+        body: text,
+        clientId: clientId,
       );
-    });
-  }
-
-  void _appendIncoming({
-    required String senderId,
-    required String senderName,
-    required String body,
-  }) {
-    final wasAtBottom = isAtBottom.value;
-
-    if (unreadDividerIndex.value == -1 && !wasAtBottom) {
-      unreadDividerIndex.value = messages.length;
-    }
-
-    messages.add(
-      ChatMessage(
-        id: _nextId(),
-        senderId: senderId,
-        senderName: senderName,
-        body: body,
-        createdAt: DateTime.now(),
-      ),
-    );
-
-    if (!wasAtBottom) {
-      unreadCount.value += 1;
-      showJumpToLatest.value = true;
-      presenceController.markUnread(senderId, value: true);
-    } else {
-      _scrollToBottom();
-      _clearUnreadIfNewestVisible();
-    }
-
-    if (_isInBackground) {
-      notificationController.showMessageNotification(
-        senderName: senderName,
-        roomName: roomTitle,
-        body: body,
-      );
+      final idx = messages.indexWhere((m) => m.clientId == clientId);
+      if (idx != -1) {
+        messages[idx] =
+            messages[idx].copyWith(deliveryStatus: DeliveryStatus.sent);
+      }
+    } catch (_) {
+      final idx = messages.indexWhere((m) => m.clientId == clientId);
+      if (idx != -1) {
+        messages.removeAt(idx);
+      }
+      _pendingClientIds.remove(clientId);
+      Get.snackbar('Send failed', 'Message was not delivered. Try again.');
     }
   }
 
-  void leaveRoom() {
-    Get.offAllNamed(AppRoutes.auth);
-  }
-
-  Future<void> _scrollToBottom() async {
-    await Future<void>.delayed(const Duration(milliseconds: 50));
+  Future<void> _scrollToBottom({bool force = false}) async {
+    await Future<void>.delayed(const Duration(milliseconds: 40));
     if (!scrollController.hasClients) return;
     await scrollController.animateTo(
       scrollController.position.maxScrollExtent,
-      duration: const Duration(milliseconds: 200),
+      duration: Duration(milliseconds: force ? 1 : 200),
       curve: Curves.easeOut,
     );
     isAtBottom.value = true;
-    _clearUnreadIfNewestVisible();
+  }
+
+  Future<void> leaveRoom() async {
+    await _typing.setTyping(
+      roomId: roomId,
+      userId: userId,
+      displayName: session.user.displayName,
+      isTyping: false,
+    );
+    await _presence.setOnline(roomId: roomId, userId: userId, online: false);
+    Get.offAllNamed(AppRoutes.auth);
   }
 
   @override
   void didChangeAppLifecycleState(AppLifecycleState state) {
     _isInBackground = state == AppLifecycleState.paused ||
         state == AppLifecycleState.inactive ||
-        state == AppLifecycleState.hidden;
+        state == AppLifecycleState.hidden ||
+        state == AppLifecycleState.detached;
 
-    if (state == AppLifecycleState.resumed && isAtBottom.value) {
-      _clearUnreadIfNewestVisible();
+    if (_isInBackground) {
+      _presence.setOnline(roomId: roomId, userId: userId, online: false);
+    } else {
+      _presence.setOnline(roomId: roomId, userId: userId, online: true);
+      if (isAtBottom.value) {
+        _clearUnread();
+        _markRead();
+      }
     }
   }
 
   @override
   void onClose() {
     WidgetsBinding.instance.removeObserver(this);
-    _deliveryTimer?.cancel();
-    _demoIncomingTimer?.cancel();
-    _typingClearTimer?.cancel();
+    _typingTimer?.cancel();
+    _messagesSub?.cancel();
+    _membersSub?.cancel();
+    _typingSub?.cancel();
+    _connectivitySub?.cancel();
+    _tokenSub?.cancel();
+    _presence.setOnline(roomId: roomId, userId: userId, online: false);
+    _presence.dispose();
     textController.dispose();
     scrollController.dispose();
     super.onClose();

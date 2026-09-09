@@ -1,13 +1,13 @@
+import 'package:realtime_chat_application/core/models/app_user.dart';
+
 class SessionArgs {
   const SessionArgs({
-    required this.email,
-    required this.displayName,
-    required this.serverUrl,
+    required this.user,
+    this.roomId = 'general',
     this.roomName = 'General',
   });
 
-  final String email;
-  final String displayName;
-  final String serverUrl;
+  final AppUser user;
+  final String roomId;
   final String roomName;
 }

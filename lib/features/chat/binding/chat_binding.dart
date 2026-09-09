@@ -1,20 +1,30 @@
 import 'package:get/get.dart';
+import 'package:realtime_chat_application/core/services/fcm_service.dart';
+import 'package:realtime_chat_application/core/services/message_service.dart';
+import 'package:realtime_chat_application/core/services/presence_service.dart';
+import 'package:realtime_chat_application/core/services/typing_service.dart';
 import 'package:realtime_chat_application/features/chat/controller/chat_controller.dart';
-import 'package:realtime_chat_application/features/notification/controller/notification_controller.dart';
-import 'package:realtime_chat_application/features/presence/controller/presence_controller.dart';
-import 'package:realtime_chat_application/features/room/controller/room_controller.dart';
 
 class ChatBinding extends Bindings {
   @override
   void dependencies() {
-    Get.lazyPut<RoomController>(RoomController.new);
-    Get.lazyPut<PresenceController>(PresenceController.new);
-    Get.lazyPut<NotificationController>(NotificationController.new);
-    Get.lazyPut<ChatController>(
-      () => ChatController(
-        roomController: Get.find(),
-        presenceController: Get.find(),
-        notificationController: Get.find(),
+    final messageService = Get.isRegistered<MessageService>()
+        ? Get.find<MessageService>()
+        : Get.put(MessageService());
+    final presenceService = Get.isRegistered<PresenceService>()
+        ? Get.find<PresenceService>()
+        : Get.put(PresenceService());
+    final typingService = Get.put(TypingService());
+    final fcmService = Get.isRegistered<FcmService>()
+        ? Get.find<FcmService>()
+        : Get.put(FcmService());
+
+    Get.put(
+      ChatController(
+        messageService: messageService,
+        presenceService: presenceService,
+        typingService: typingService,
+        fcmService: fcmService,
       ),
     );
   }

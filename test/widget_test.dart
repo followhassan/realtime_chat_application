@@ -1,12 +1,16 @@
 import 'package:flutter_test/flutter_test.dart';
-import 'package:realtime_chat_application/apps/app.dart';
+import 'package:realtime_chat_application/core/utils/identity.dart';
 
 void main() {
-  testWidgets('App loads login screen', (tester) async {
-    await tester.pumpWidget(const RealtimeChatApp());
-    await tester.pumpAndSettle();
+  test('same email maps to same identity key and avatar colour', () {
+    const a = 'Alex@Example.com';
+    const b = 'alex@example.com';
+    expect(EmailUtils.docId(a), EmailUtils.docId(b));
+    expect(avatarColorFromEmail(a), avatarColorFromEmail(b));
+  });
 
-    expect(find.text('Join room'), findsOneWidget);
-    expect(find.text('Join Room'), findsOneWidget);
+  test('email validation', () {
+    expect(EmailUtils.isValid('a@b.com'), isTrue);
+    expect(EmailUtils.isValid('bad'), isFalse);
   });
 }

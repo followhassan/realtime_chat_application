@@ -2,7 +2,6 @@ import 'package:flutter/material.dart';
 import 'package:get/get.dart';
 import 'package:realtime_chat_application/core/constants/app_colors.dart';
 import 'package:realtime_chat_application/features/auth/controller/auth_controller.dart';
-import 'package:realtime_chat_application/features/auth/widgets/server_url_section.dart';
 
 class AuthView extends GetView<AuthController> {
   const AuthView({super.key});
@@ -31,7 +30,7 @@ class AuthView extends GetView<AuthController> {
                     ),
                     const SizedBox(height: 8),
                     Text(
-                      'Enter your email to join the chat room.',
+                      'Enter your email to join. Same email keeps your identity, colour, and history.',
                       style: Theme.of(context).textTheme.bodyMedium?.copyWith(
                             color: AppColors.onSurfaceVariant,
                           ),
@@ -58,8 +57,6 @@ class AuthView extends GetView<AuthController> {
                         hintText: 'How others see you',
                       ),
                     ),
-                    const SizedBox(height: 8),
-                    const ServerUrlSection(),
                     const SizedBox(height: 28),
                     Obx(
                       () => FilledButton(

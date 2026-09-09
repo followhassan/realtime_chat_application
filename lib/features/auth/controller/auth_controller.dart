@@ -1,37 +1,31 @@
-import 'package:flutter/material.dart';
 import 'package:get/get.dart';
 import 'package:realtime_chat_application/apps/routes/app_routes.dart';
 import 'package:realtime_chat_application/core/models/session_args.dart';
-import 'package:shared_preferences/shared_preferences.dart';
+import 'package:realtime_chat_application/core/services/auth_service.dart';
+import 'package:realtime_chat_application/core/services/message_service.dart';
+import 'package:realtime_chat_application/core/services/presence_service.dart';
+import 'package:realtime_chat_application/core/constants/firebase_paths.dart';
+import 'package:flutter/material.dart';
 
 class AuthController extends GetxController {
-  static const defaultServerUrl = 'ws://localhost:8080';
+  AuthController({
+    AuthService? authService,
+    MessageService? messageService,
+    PresenceService? presenceService,
+  })  : _authService = authService ?? AuthService(),
+        _messageService = messageService ?? MessageService(),
+        _presenceService = presenceService ?? PresenceService();
+
+  final AuthService _authService;
+  final MessageService _messageService;
+  final PresenceService _presenceService;
 
   final formKey = GlobalKey<FormState>();
   final emailController = TextEditingController();
   final displayNameController = TextEditingController();
-  final serverUrlController = TextEditingController(text: defaultServerUrl);
 
-  final isServerExpanded = false.obs;
   final isJoining = false.obs;
-
-  @override
-  void onInit() {
-    super.onInit();
-    _loadSavedServerUrl();
-  }
-
-  Future<void> _loadSavedServerUrl() async {
-    final prefs = await SharedPreferences.getInstance();
-    final saved = prefs.getString('server_url');
-    if (saved != null && saved.isNotEmpty) {
-      serverUrlController.text = saved;
-    }
-  }
-
-  void toggleServerSettings() {
-    isServerExpanded.value = !isServerExpanded.value;
-  }
+  final errorText = RxnString();
 
   String? validateEmail(String? value) {
     final email = value?.trim() ?? '';
@@ -44,34 +38,41 @@ class AuthController extends GetxController {
     if (!(formKey.currentState?.validate() ?? false)) return;
 
     isJoining.value = true;
-    final email = emailController.text.trim();
-    final displayName = displayNameController.text.trim().isEmpty
-        ? email.split('@').first
-        : displayNameController.text.trim();
-    final serverUrl = serverUrlController.text.trim().isEmpty
-        ? defaultServerUrl
-        : serverUrlController.text.trim();
+    errorText.value = null;
 
-    final prefs = await SharedPreferences.getInstance();
-    await prefs.setString('server_url', serverUrl);
+    try {
+      final user = await _authService.joinWithEmail(
+        email: emailController.text,
+        displayName: displayNameController.text,
+      );
 
-    isJoining.value = false;
+      await _presenceService.joinRoom(
+        roomId: FirebasePaths.defaultRoomId,
+        user: user,
+      );
 
-    Get.offAllNamed(
-      AppRoutes.chat,
-      arguments: SessionArgs(
-        email: email,
-        displayName: displayName,
-        serverUrl: serverUrl,
-      ),
-    );
+      await _messageService.sendJoinAnnouncement(
+        roomId: FirebasePaths.defaultRoomId,
+        senderId: user.id,
+        displayName: user.displayName,
+      );
+
+      Get.offAllNamed(
+        AppRoutes.chat,
+        arguments: SessionArgs(user: user),
+      );
+    } catch (e) {
+      errorText.value = e.toString();
+      Get.snackbar('Join failed', '$e');
+    } finally {
+      isJoining.value = false;
+    }
   }
 
   @override
   void onClose() {
     emailController.dispose();
     displayNameController.dispose();
-    serverUrlController.dispose();
     super.onClose();
   }
 }

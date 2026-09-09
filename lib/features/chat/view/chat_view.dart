@@ -1,6 +1,5 @@
 import 'package:flutter/material.dart';
 import 'package:get/get.dart';
-import 'package:realtime_chat_application/apps/routes/app_routes.dart';
 import 'package:realtime_chat_application/core/constants/app_colors.dart';
 import 'package:realtime_chat_application/core/models/chat_message.dart';
 import 'package:realtime_chat_application/features/chat/controller/chat_controller.dart';
@@ -37,18 +36,39 @@ class ChatView extends GetView<ChatController> {
         actions: [
           IconButton(
             tooltip: 'Leave room',
-            onPressed: () => Get.offAllNamed(AppRoutes.auth),
+            onPressed: controller.leaveRoom,
             icon: const Icon(Icons.logout_rounded),
           ),
         ],
       ),
       body: Column(
         children: [
-          Obx(
-            () => MemberStrip(
-              members: controller.presenceController.members.toList(),
-            ),
-          ),
+          Obx(() {
+            if (!controller.isReconnecting.value) {
+              return const SizedBox.shrink();
+            }
+            return Material(
+              color: const Color(0xFFFFF7ED),
+              child: Padding(
+                padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
+                child: Row(
+                  children: [
+                    const SizedBox(
+                      width: 14,
+                      height: 14,
+                      child: CircularProgressIndicator(strokeWidth: 2),
+                    ),
+                    const SizedBox(width: 10),
+                    Text(
+                      'Reconnecting… history will sync automatically',
+                      style: Theme.of(context).textTheme.labelMedium,
+                    ),
+                  ],
+                ),
+              ),
+            );
+          }),
+          Obx(() => MemberStrip(members: controller.members.toList())),
           const Divider(height: 1, color: AppColors.outline),
           Expanded(
             child: Stack(
@@ -58,8 +78,24 @@ class ChatView extends GetView<ChatController> {
                   return ListView.builder(
                     controller: controller.scrollController,
                     padding: const EdgeInsets.fromLTRB(16, 8, 16, 16),
-                    itemCount: items.length,
-                    itemBuilder: (context, index) => items[index],
+                    itemCount: items.length + (controller.isLoadingMore.value ? 1 : 0),
+                    itemBuilder: (context, index) {
+                      if (controller.isLoadingMore.value && index == 0) {
+                        return const Padding(
+                          padding: EdgeInsets.all(12),
+                          child: Center(
+                            child: SizedBox(
+                              width: 18,
+                              height: 18,
+                              child: CircularProgressIndicator(strokeWidth: 2),
+                            ),
+                          ),
+                        );
+                      }
+                      final itemIndex =
+                          controller.isLoadingMore.value ? index - 1 : index;
+                      return items[itemIndex];
+                    },
                   );
                 }),
                 Obx(() {
@@ -78,11 +114,7 @@ class ChatView extends GetView<ChatController> {
               ],
             ),
           ),
-          Obx(
-            () => TypingIndicator(
-              names: controller.typingUsers.toList(),
-            ),
-          ),
+          Obx(() => TypingIndicator(names: controller.typingUsers.toList())),
           MessageComposer(
             controller: controller.textController,
             onChanged: controller.onComposerChanged,

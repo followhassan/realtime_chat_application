@@ -30,8 +30,8 @@ class MemberStrip extends StatelessWidget {
                   children: [
                     CircleAvatar(
                       radius: 20,
-                      backgroundColor: AppColors.primary.withValues(alpha: 0.12),
-                      foregroundColor: AppColors.primary,
+                      backgroundColor: member.avatarColor.withValues(alpha: 0.18),
+                      foregroundColor: member.avatarColor,
                       child: Text(
                         member.initials,
                         style: const TextStyle(
